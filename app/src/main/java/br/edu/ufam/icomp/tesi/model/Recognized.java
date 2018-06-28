@@ -12,7 +12,7 @@ public class Recognized implements Serializable {
     @SerializedName("status")
     private String status;
     @SerializedName("recognitionResult")
-    private RecognationResult recognationResult;
+    private RecognitionResult recognitionResult;
 
     public String getStatus() {
         return status;
@@ -22,11 +22,19 @@ public class Recognized implements Serializable {
         this.status = status;
     }
 
-    public RecognationResult getRecognationResult() {
-        return recognationResult;
+    public RecognitionResult getRecognitionResult() {
+        return recognitionResult;
     }
 
-    public void setRecognationResult(RecognationResult recognationResult) {
-        this.recognationResult = recognationResult;
+    public void setRecognitionResult(RecognitionResult recognitionResult) {
+        this.recognitionResult = recognitionResult;
+    }
+
+    @Override
+    public String toString() {
+        return "Recognized{" +
+                "status='" + status + '\'' +
+                ", recognitionResult=" + recognitionResult +
+                '}';
     }
 }

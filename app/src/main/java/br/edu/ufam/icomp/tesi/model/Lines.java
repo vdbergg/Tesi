@@ -40,4 +40,13 @@ public class Lines implements Serializable {
     public void setLinesWords(List<Lines> linesWords) {
         this.linesWords = linesWords;
     }
+
+    @Override
+    public String toString() {
+        return "Lines{" +
+                "boundingBoxList=" + boundingBoxList +
+                ", text='" + text + '\'' +
+                ", linesWords=" + linesWords +
+                '}';
+    }
 }

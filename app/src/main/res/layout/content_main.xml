@@ -18,7 +18,7 @@
         camerakit:ckFocus="continuous"
         camerakit:ckMethod="standard"
         camerakit:ckPermissions="strict"
-        camerakit:ckJpegQuality="100"
+        camerakit:ckJpegQuality="25"
         android:adjustViewBounds="true"/>
 
     <ImageView

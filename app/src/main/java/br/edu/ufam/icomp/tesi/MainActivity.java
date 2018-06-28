@@ -4,13 +4,15 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.Bundle;
+import android.os.Handler;
 import android.speech.RecognizerIntent;
 import android.speech.tts.TextToSpeech;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
+import android.util.Log;
+import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
-import android.view.View;
 import android.widget.ImageView;
 import android.widget.Toast;
 
@@ -21,11 +23,13 @@ import com.wonderkiln.camerakit.CameraKitImage;
 import com.wonderkiln.camerakit.CameraKitVideo;
 import com.wonderkiln.camerakit.CameraView;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -39,12 +43,13 @@ import butterknife.OnClick;
 import butterknife.Unbinder;
 import okhttp3.MediaType;
 import okhttp3.RequestBody;
+import okhttp3.ResponseBody;
 import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
 
 public class MainActivity extends AppCompatActivity implements TextToSpeech.OnInitListener {
-
+    private static final String DEBUG_TAG = "MainActivity";
     private static final int TTS_REQUEST_CODE = 10;
     private static final int SPEECH_REQUEST_CODE = 0;
     private static final int CAMERA = 0;
@@ -70,7 +75,6 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         unbinder = ButterKnife.bind(this);
 
         initCamera();
-        initKeys();
         initTTS();
     }
 
@@ -88,7 +92,14 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
             @Override
             public void onImage(CameraKitImage cameraKitImage) {
-                sendImageBinary(cameraKitImage.getBitmap(), cameraKitImage.getJpeg());
+                Bitmap resized = Bitmap.createScaledBitmap(cameraKitImage.getBitmap(), 768, 1024, false);
+
+                ByteArrayOutputStream os = new ByteArrayOutputStream();
+                resized.compress(Bitmap.CompressFormat.JPEG, 100, os);
+
+                byte[] array = os.toByteArray();
+
+                sendImageBinary(array);
             }
 
             @Override
@@ -96,6 +107,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
             }
         });
+
     }
 
     private void initTTS() {
@@ -115,21 +127,6 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     protected void onPause() {
         cameraView.stop();
         super.onPause();
-    }
-
-    private void initKeys() {
-        keys.put("ver câmera", CAMERA);
-        keys.put("abrir câmera", CAMERA);
-        keys.put("câmera", CAMERA);
-        keys.put("showCamera", CAMERA);
-        keys.put("ver showCamera", CAMERA);
-        keys.put("abrir showCamera", CAMERA);
-        keys.put("iniciar câmera", CAMERA);
-        keys.put("iniciar showCamera", CAMERA);
-
-        keys.put("tirar foto", TAKE_PICTURE);
-        keys.put("fotografar", TAKE_PICTURE);
-        keys.put("bater foto", TAKE_PICTURE);
     }
 
     @Override
@@ -153,17 +150,12 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     protected void onDestroy() {
         super.onDestroy();
         unbinder.unbind();
+        repeatTTS.shutdown();
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == SPEECH_REQUEST_CODE && resultCode == RESULT_OK) {
-            List<String> results = data.getStringArrayListExtra(
-                    RecognizerIntent.EXTRA_RESULTS);
-
-            findWord(results);
-        }
 
         if (requestCode == TTS_REQUEST_CODE) {
             if (resultCode == TextToSpeech.Engine.CHECK_VOICE_DATA_PASS) {
@@ -176,67 +168,74 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         }
     }
 
-    private void sendImageBinary(Bitmap bitmap, byte[] contents) {
-        File file = new File(getCacheDir(), "teste.jpeg");
-        try {
-            file.createNewFile();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        InputStream in = null;
-        try {
-            in = new FileInputStream(file);
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        }
-        byte[] buf= null;
-        try {
-            buf = new byte[in.available()];
-            while (in.read(buf) != -1);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        repeatTTS.speak("Processando imagem... Por favor, aguarde.", TextToSpeech.QUEUE_ADD, null);
+    private void sendImageBinary(byte[] contents) {
+        repeatTTS.speak("Analyzing...", TextToSpeech.QUEUE_ADD, null);
+        Toast.makeText(getApplicationContext(), "Analyzing...", Toast.LENGTH_SHORT).show();
 
         RequestBody requestBody = RequestBody.create(MediaType.parse("application/octet-stream"), contents);
 
-        retrofit2.Call<Void> req = RetrofitService.getInstance(this).tesiService().sendImage(requestBody);
-        req.enqueue(new Callback<Void>() {
+        retrofit2.Call<ResponseBody> req = RetrofitService.getInstance(this).tesiService().sendImage(requestBody);
+
+        Log.d(DEBUG_TAG, req.request().url().toString());
+
+        req.enqueue(new Callback<ResponseBody>() {
             @Override
-            public void onResponse(Call<Void> call, Response<Void> response) {
-              if (response.code() == 202) {
-                  retrofit2.Call<Recognized> req2 = RetrofitService.getInstance(MainActivity.this)
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                if (response.code() == 202) {
+                  Log.d(DEBUG_TAG, "Response 202!");
+
+                  final retrofit2.Call<Recognized> req2 = RetrofitService.getInstance(MainActivity.this)
                           .tesiService().getRecognized(response.headers().get("Operation-Location"));
 
-                  req2.enqueue(new Callback<Recognized>() {
-                      @Override
-                      public void onResponse(Call<Recognized> call2, Response<Recognized> response2) {
-                          if (response2.code() == 200) {
-                              Recognized recognized = response2.body();
-                              processedText(recognized);
-                          }
-                      }
+                  Log.d(DEBUG_TAG, req2.request().url().toString());
+                  Log.d(DEBUG_TAG, response.headers().get("Operation-Location"));
 
-                      @Override
-                      public void onFailure(Call<Recognized> call2, Throwable t2) {
+                    final Handler handler = new Handler();
+                    handler.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            req2.enqueue(new Callback<Recognized>() {
+                                @Override
+                                public void onResponse(Call<Recognized> call2, Response<Recognized> response2) {
+                                    if (response2.code() == 200) {
+                                        Recognized recognized = response2.body();
+                                        processedText(recognized);
+                                    }
+                                }
 
-                      }
-                  });
-              }
+                                @Override
+                                public void onFailure(Call<Recognized> call2, Throwable t2) {
+
+                                }
+                            });
+                        }
+                    }, 1500);
+
+
+              }else{
+                    Toast.makeText(getApplicationContext(), "Error in recognition service!", Toast.LENGTH_SHORT).show();
+                    Log.d(DEBUG_TAG, "" + response.code());
+                    Log.d(DEBUG_TAG, response.headers().toString());
+                    Log.d(DEBUG_TAG, response.raw().toString());
+                    try {
+                        Log.d(DEBUG_TAG, response.errorBody().string());
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
             }
 
             @Override
-            public void onFailure(Call<Void> call, Throwable t) {
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
                 t.printStackTrace();
             }
         });
     }
 
     private void processedText(Recognized recognized) {
-        if (recognized != null && recognized.getRecognationResult() != null) {
-            List<Lines> lines = recognized.getRecognationResult().getLines();
+        Log.d(DEBUG_TAG, "Recognized" + recognized);
+        if (recognized != null && recognized.getRecognitionResult() != null) {
+            List<Lines> lines = recognized.getRecognitionResult().getLines();
 
             StringBuilder text = new StringBuilder();
 
@@ -245,7 +244,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             }
 
             if (text.length() > 0) {
-                repeatTTS.speak("A palavra identificada é: " + text, TextToSpeech.QUEUE_ADD, null);
+                Toast.makeText(getApplicationContext(), text, Toast.LENGTH_LONG).show();
+                repeatTTS.speak(text.toString(), TextToSpeech.QUEUE_ADD, null);
             } else {
                 reportError();
             }
@@ -255,49 +255,23 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     }
 
     private void reportError() {
-        repeatTTS.speak("Houve um problema na identificação da palavra. Por favor, tente novamente.", TextToSpeech.QUEUE_ADD, null);
+        Toast.makeText(getApplicationContext(), "Oops, there is problem. Try again!", Toast.LENGTH_SHORT).show();
+        repeatTTS.speak("Oops, there is problem. Try again!", TextToSpeech.QUEUE_ADD, null);
     }
 
-    private void findWord(List<String> results) {
-        for (String result : results) {
-            Integer value = keys.get(result.toLowerCase());
 
-            if (value != null) {
-                switch (value) {
-                    case CAMERA:
-//                        if (repeatTTS != null) {
-//                            repeatTTS.speak("Abrindo câmera... Por favor, aguarde.", TextToSpeech.QUEUE_ADD, null);
-//                        }
-//                        cameraView.start();
-                        break;
-                    case TAKE_PICTURE:
-                        cameraView.captureImage();
-                        break;
-                }
-            }
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if ((keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP)){
+            cameraView.captureImage();
         }
-    }
-
-    private void displaySpeechRecognizer() {
-        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
-        intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Diga: Abrir câmera/tirar foto");
-
-        try {
-            startActivityForResult(intent, SPEECH_REQUEST_CODE);
-        } catch (ActivityNotFoundException a) {
-            Toast.makeText(getApplicationContext(),
-                    "Speech não suportado",
-                    Toast.LENGTH_SHORT).show();
-        }
+        return true;
     }
 
     @Override
     public void onInit(int i) {
         if (i == TextToSpeech.SUCCESS) {
-            repeatTTS.setLanguage(new Locale("pt", "POR"));
+            repeatTTS.setLanguage(new Locale("en", "US"));
         }
     }
 
